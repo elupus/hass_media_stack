@@ -102,12 +102,45 @@ class MediaStack(MediaPlayerDevice):
             except KeyError:
                 return stack
 
+    def _get_source_tree(self, entity_id, parents=None):
+
+        def _get_sources():
+            data = self.hass.states.get(entity_id)
+            if data is None:
+                return
+            source = data.attributes.get(ATTR_INPUT_SOURCE)
+            sources = list(data.attributes.get(ATTR_INPUT_SOURCE_LIST, []))
+            if source and source not in sources:
+                sources.append(source)
+            return sources
+
+        if parents is None:
+            parents = set()
+        else:
+            parents = set(parents)
+        parents.add(entity_id)
+
+        result = {}
+        mapping = self._mapping.get(entity_id, {})
+        for source in _get_sources():
+            source_entity_id = mapping.get(source)
+            result[source] = {}
+            if not source_entity_id:
+                continue
+
+            if source_entity_id in parents:
+                _LOGGER.debug("Ignoring recursive loop: %s %s %s", entity_id, source, source_entity_id)
+                continue
+
+            result[source] = self._get_source_tree(source_entity_id, parents)
+
+        return result
+
     @property
     def _source_entity(self):
         if not self._stack:
             return None
         return self._stack[-1]
-
 
     @property
     def _sink_entity(self):
@@ -150,7 +183,6 @@ class MediaStack(MediaPlayerDevice):
     def is_volume_muted(self):
         """Boolean if volume is currently muted."""
         return self._get_attribute(self._sink_entity, ATTR_MEDIA_VOLUME_MUTED)
-
 
     @property
     def entity_picture_local(self):
@@ -212,27 +244,6 @@ class MediaStack(MediaPlayerDevice):
     def source_list(self):
         """Return the current state of the media player."""
 
-        def _get_sources(entity_id):
-            data = self.hass.states.get(entity_id)
-            if data is None:
-                return []
-            source = data.attributes.get(ATTR_INPUT_SOURCE)
-            sources = list(data.attributes.get(ATTR_INPUT_SOURCE_LIST, []))
-            if source and source not in sources:
-                sources.append(source)
-            return sources
-
-        def _get_source_tree(entity_id):
-            result = {}
-            mapping = self._mapping.get(entity_id, {})
-            for source in _get_sources(entity_id):
-                source_entity_id = mapping.get(source)
-                if source_entity_id:
-                    result[source] = _get_source_tree(source_entity_id)
-                else:
-                    result[source] = {}
-            return result
-
         def _flatten(tree):
             for key, value in tree.items():
                 added = False
@@ -247,7 +258,7 @@ class MediaStack(MediaPlayerDevice):
         if not state:
             return []
 
-        tree = _get_source_tree(state.entity_id)
+        tree = self._get_source_tree(state.entity_id)
         return list(_flatten(tree))
 
     async def async_update(self):
