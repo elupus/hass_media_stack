@@ -7,6 +7,8 @@ from homeassistant.components.media_player import (
     PLATFORM_SCHEMA,
     MediaPlayerDevice,
     ATTR_TO_PROPERTY,
+    ATTR_MEDIA_VOLUME_LEVEL,
+    ATTR_MEDIA_VOLUME_MUTED,
 )
 from homeassistant.components.media_player.const import (
     ATTR_INPUT_SOURCE,
@@ -27,12 +29,13 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_UNAVAILABLE,
 )
-from homeassistant.core import callback
+from homeassistant.core import callback, State
 from homeassistant.helpers import config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
 CONF_MAPPING = "mapping"
+CONF_VOLUME = "volume"
 
 OFF_STATES = [STATE_IDLE, STATE_OFF, STATE_UNAVAILABLE]
 
@@ -41,6 +44,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_NAME): cv.string,
         vol.Required(CONF_MAPPING): {cv.entity_id: {str: cv.entity_id}},
+        vol.Optional(CONF_VOLUME, []): cv.entity_ids,
     },
 )
 
@@ -59,6 +63,7 @@ class MediaStack(MediaPlayerDevice):
         """Initialize player."""
         self._mapping = config[CONF_MAPPING]
         self._name = config[CONF_NAME]
+        self._volume = config[CONF_VOLUME]
         self._stack = []
 
     async def async_added_to_hass(self):
@@ -100,21 +105,39 @@ class MediaStack(MediaPlayerDevice):
             except KeyError:
                 return stack
 
-    def _get_attribute(self, attribute, default=None):
-        if self._stack:
-            return self._stack[-1].attributes.get(attribute)
-        else:
-            return default
+    @property
+    def _volume_entity(self):
+        if not self._stack:
+            return None
+
+        for entity_id in self._volume:
+            value = next((x for x in self._stack if x.entity_id == entity_id), None)
+            if value:
+                return value
+        return None
+
+    @property
+    def _source_entity(self):
+        if not self._stack:
+            return None
+        return self._stack[-1]
 
     @property
     def _root_entity_id(self):
         return next(iter(self._mapping))
 
+    def _get_attribute(self, state: State, attribute: str, default=None):
+        if state:
+            return state.attributes.get(attribute)
+        else:
+            return default
+
     @property
     def state(self):
         """Return the current state of the media player."""
-        if self._stack:
-            return self._stack[-1].state
+        data = self._source_entity
+        if data:
+            return data.state
         else:
             return STATE_OFF
 
@@ -128,9 +151,20 @@ class MediaStack(MediaPlayerDevice):
             return None
 
     @property
+    def volume_level(self):
+        """Volume level of the media player (0..1)."""
+        return self._get_attribute(self._volume_entity, ATTR_MEDIA_VOLUME_LEVEL)
+
+    @property
+    def is_volume_muted(self):
+        """Boolean if volume is currently muted."""
+        return self._get_attribute(self._volume_entity, ATTR_MEDIA_VOLUME_MUTED)
+
+
+    @property
     def entity_picture_local(self):
         """Return if picture is available locally."""
-        return self._get_attribute("entity_picture_local")
+        return self._get_attribute(self._source_entity, "entity_picture_local")
 
     @property
     def state_attributes(self):
@@ -143,7 +177,7 @@ class MediaStack(MediaPlayerDevice):
         for attr in ATTR_TO_PROPERTY:
             value = getattr(self, attr)
             if value is None:
-                value = self._get_attribute(attr)
+                value = self._get_attribute(self._source_entity, attr)
 
             if value is not None:
                 attrs[attr] = value
@@ -153,32 +187,35 @@ class MediaStack(MediaPlayerDevice):
     @property
     def supported_features(self):
         """Return the current state of the media player."""
-        supported = self._get_attribute(ATTR_SUPPORTED_FEATURES, 0)
+        supported = self._get_attribute(self._source_entity, ATTR_SUPPORTED_FEATURES, 0)
 
         supported |= SUPPORT_SELECT_SOURCE
 
-        supported |= SUPPORT_VOLUME_MUTE | SUPPORT_VOLUME_SET | SUPPORT_VOLUME_STEP
+        supported_volume = SUPPORT_VOLUME_MUTE | SUPPORT_VOLUME_SET | SUPPORT_VOLUME_STEP
+        supported &= ~supported_volume
+        supported |= self._get_attribute(self._volume_entity, ATTR_SUPPORTED_FEATURES, 0)
+
         return supported
 
     @property
     def assumed_state(self):
         """Return the current state of the media player."""
-        return self._get_attribute(ATTR_ASSUMED_STATE)
+        return self._get_attribute(self._source_entity, ATTR_ASSUMED_STATE)
 
     @property
     def entity_picture(self):
         """Return the current state of the media player."""
-        return self._get_attribute(ATTR_ENTITY_PICTURE)
+        return self._get_attribute(self._source_entity, ATTR_ENTITY_PICTURE)
 
     @property
     def icon(self):
         """Return the current state of the media player."""
-        return self._get_attribute(ATTR_ICON)
+        return self._get_attribute(self._source_entity, ATTR_ICON)
 
     @property
     def sound_mode_list(self):
         """Return the current state of the media player."""
-        return self._get_attribute(ATTR_SOUND_MODE_LIST)
+        return self._get_attribute(self._source_entity, ATTR_SOUND_MODE_LIST)
 
     @property
     def source_list(self):
@@ -217,8 +254,6 @@ class MediaStack(MediaPlayerDevice):
 
         tree = _get_source_tree(self._root_entity_id)
         return list(_flatten(tree))
-
-        return self._get_attribute(ATTR_INPUT_SOURCE_LIST)
 
     async def async_update(self):
         """Update state in HA."""
