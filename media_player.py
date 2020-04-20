@@ -9,39 +9,10 @@ from homeassistant.components.media_player import (
     ATTR_TO_PROPERTY,
 )
 from homeassistant.components.media_player.const import (
-    ATTR_APP_ID,
-    ATTR_APP_NAME,
     ATTR_INPUT_SOURCE,
     ATTR_INPUT_SOURCE_LIST,
-    ATTR_MEDIA_ALBUM_ARTIST,
-    ATTR_MEDIA_ALBUM_NAME,
-    ATTR_MEDIA_ARTIST,
-    ATTR_MEDIA_CHANNEL,
-    ATTR_MEDIA_CONTENT_ID,
-    ATTR_MEDIA_CONTENT_TYPE,
-    ATTR_MEDIA_DURATION,
-    ATTR_MEDIA_EPISODE,
-    ATTR_MEDIA_PLAYLIST,
-    ATTR_MEDIA_POSITION,
-    ATTR_MEDIA_POSITION_UPDATED_AT,
-    ATTR_MEDIA_SEASON,
-    ATTR_MEDIA_SEEK_POSITION,
-    ATTR_MEDIA_SERIES_TITLE,
-    ATTR_MEDIA_SHUFFLE,
-    ATTR_MEDIA_TITLE,
-    ATTR_MEDIA_TRACK,
-    ATTR_MEDIA_VOLUME_LEVEL,
-    ATTR_MEDIA_VOLUME_MUTED,
     ATTR_SOUND_MODE_LIST,
-    DOMAIN,
-    SERVICE_CLEAR_PLAYLIST,
-    SERVICE_PLAY_MEDIA,
-    SERVICE_SELECT_SOURCE,
-    SUPPORT_CLEAR_PLAYLIST,
     SUPPORT_SELECT_SOURCE,
-    SUPPORT_SHUFFLE_SET,
-    SUPPORT_TURN_OFF,
-    SUPPORT_TURN_ON,
     SUPPORT_VOLUME_MUTE,
     SUPPORT_VOLUME_SET,
     SUPPORT_VOLUME_STEP,
@@ -69,8 +40,6 @@ CONF_CHILDREN = "children"
 CONF_COMMANDS = "commands"
 CONF_SERVICE = "service"
 CONF_SERVICE_DATA = "service_data"
-CONF_AUDIO = "audio"
-CONF_VIDEO = "video"
 CONF_MAPPING = "mapping"
 
 OFF_STATES = [STATE_IDLE, STATE_OFF, STATE_UNAVAILABLE]
@@ -82,13 +51,9 @@ CMD_SCHEMA = cv.schema_with_slug_keys(cv.SERVICE_SCHEMA)
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_NAME): cv.string,
-        vol.Optional(CONF_AUDIO, default=[]): cv.entity_ids,
-        vol.Optional(CONF_VIDEO, default=[]): cv.entity_ids,
         vol.Required(CONF_MAPPING): {cv.entity_id: {str: cv.entity_id}},
     },
 )
-
-STATE_ATTR_TO_COPY = [*ATTR_TO_PROPERTY, "entity_picture_local"]
 
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
@@ -103,8 +68,6 @@ class MediaStack(MediaPlayerDevice):
 
     def __init__(self, config):
         """Initialize player."""
-        self._audio = config[CONF_AUDIO]
-        self._video = config[CONF_VIDEO]
         self._mapping = config[CONF_MAPPING]
         self._name = config[CONF_NAME]
         self._stack = []
@@ -117,12 +80,8 @@ class MediaStack(MediaPlayerDevice):
             """Update ha state when dependencies update."""
             self.async_schedule_update_ha_state(True)
 
-        depend = set()
-        depend |= set(self._audio)
-        depend |= set(self._video)
-
         self.hass.helpers.event.async_track_state_change(
-            list(depend), async_on_dependency_update
+            list(self._mapping.keys()), async_on_dependency_update
         )
 
     @property
@@ -157,6 +116,10 @@ class MediaStack(MediaPlayerDevice):
             return self._stack[-1].attributes.get(attribute)
         else:
             return default
+
+    @property
+    def _root_entity_id(self):
+        return next(iter(self._mapping))
 
     @property
     def state(self):
@@ -201,7 +164,12 @@ class MediaStack(MediaPlayerDevice):
     @property
     def supported_features(self):
         """Return the current state of the media player."""
-        return self._get_attribute(ATTR_SUPPORTED_FEATURES, 0) | SUPPORT_SELECT_SOURCE
+        supported = self._get_attribute(ATTR_SUPPORTED_FEATURES, 0)
+
+        supported |= SUPPORT_SELECT_SOURCE
+
+        supported |= SUPPORT_VOLUME_MUTE | SUPPORT_VOLUME_SET | SUPPORT_VOLUME_STEP
+        return supported
 
     @property
     def assumed_state(self):
@@ -258,11 +226,11 @@ class MediaStack(MediaPlayerDevice):
                 if not added:
                     yield f"{key}"
 
-        tree = _get_source_tree(self._video[0])
+        tree = _get_source_tree(self._root_entity_id)
         return list(_flatten(tree))
 
         return self._get_attribute(ATTR_INPUT_SOURCE_LIST)
 
     async def async_update(self):
         """Update state in HA."""
-        self._stack = self._get_source_stack(self._video[0])
+        self._stack = self._get_source_stack(self._root_entity_id)
