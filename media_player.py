@@ -32,20 +32,9 @@ from homeassistant.helpers import config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
-ATTR_ACTIVE_CHILD = "active_child"
-ATTR_DATA = "data"
-
-CONF_ATTRS = "attributes"
-CONF_CHILDREN = "children"
-CONF_COMMANDS = "commands"
-CONF_SERVICE = "service"
-CONF_SERVICE_DATA = "service_data"
 CONF_MAPPING = "mapping"
 
 OFF_STATES = [STATE_IDLE, STATE_OFF, STATE_UNAVAILABLE]
-
-ATTRS_SCHEMA = cv.schema_with_slug_keys(cv.string)
-CMD_SCHEMA = cv.schema_with_slug_keys(cv.SERVICE_SCHEMA)
 
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
