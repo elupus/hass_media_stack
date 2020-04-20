@@ -1,0 +1,9 @@
+{
+  "domain": "media_stack",
+  "name": "Media Stack",
+  "config_flow": false,
+  "documentation": "",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": []
+}
