@@ -35,7 +35,6 @@ from homeassistant.helpers import config_validation as cv
 _LOGGER = logging.getLogger(__name__)
 
 CONF_MAPPING = "mapping"
-CONF_VOLUME = "volume"
 
 OFF_STATES = [STATE_IDLE, STATE_OFF, STATE_UNAVAILABLE]
 
@@ -44,7 +43,6 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_NAME): cv.string,
         vol.Required(CONF_MAPPING): {cv.entity_id: {str: cv.entity_id}},
-        vol.Optional(CONF_VOLUME, []): cv.entity_ids,
     },
 )
 
@@ -63,7 +61,6 @@ class MediaStack(MediaPlayerDevice):
         """Initialize player."""
         self._mapping = config[CONF_MAPPING]
         self._name = config[CONF_NAME]
-        self._volume = config[CONF_VOLUME]
         self._stack = []
 
     async def async_added_to_hass(self):
@@ -106,25 +103,19 @@ class MediaStack(MediaPlayerDevice):
                 return stack
 
     @property
-    def _volume_entity(self):
-        if not self._stack:
-            return None
-
-        for entity_id in self._volume:
-            value = next((x for x in self._stack if x.entity_id == entity_id), None)
-            if value:
-                return value
-        return None
-
-    @property
     def _source_entity(self):
         if not self._stack:
             return None
         return self._stack[-1]
 
+
     @property
-    def _root_entity_id(self):
-        return next(iter(self._mapping))
+    def _sink_entity(self):
+        for entity_id in self._mapping:
+            state = self.hass.states.get(entity_id)
+            if state and state.state not in OFF_STATES:
+                return state
+        return None
 
     def _get_attribute(self, state: State, attribute: str, default=None):
         if state:
@@ -153,12 +144,12 @@ class MediaStack(MediaPlayerDevice):
     @property
     def volume_level(self):
         """Volume level of the media player (0..1)."""
-        return self._get_attribute(self._volume_entity, ATTR_MEDIA_VOLUME_LEVEL)
+        return self._get_attribute(self._sink_entity, ATTR_MEDIA_VOLUME_LEVEL)
 
     @property
     def is_volume_muted(self):
         """Boolean if volume is currently muted."""
-        return self._get_attribute(self._volume_entity, ATTR_MEDIA_VOLUME_MUTED)
+        return self._get_attribute(self._sink_entity, ATTR_MEDIA_VOLUME_MUTED)
 
 
     @property
@@ -193,7 +184,7 @@ class MediaStack(MediaPlayerDevice):
 
         supported_volume = SUPPORT_VOLUME_MUTE | SUPPORT_VOLUME_SET | SUPPORT_VOLUME_STEP
         supported &= ~supported_volume
-        supported |= self._get_attribute(self._volume_entity, ATTR_SUPPORTED_FEATURES, 0)
+        supported |= self._get_attribute(self._sink_entity, ATTR_SUPPORTED_FEATURES, 0)
 
         return supported
 
@@ -252,9 +243,17 @@ class MediaStack(MediaPlayerDevice):
                 if not added:
                     yield f"{key}"
 
-        tree = _get_source_tree(self._root_entity_id)
+        state = self._sink_entity
+        if not state:
+            return []
+
+        tree = _get_source_tree(state.entity_id)
         return list(_flatten(tree))
 
     async def async_update(self):
         """Update state in HA."""
-        self._stack = self._get_source_stack(self._root_entity_id)
+        state = self._sink_entity
+        if state:
+            self._stack = self._get_source_stack(state.entity_id)
+        else:
+            self._stack = []
