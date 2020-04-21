@@ -135,8 +135,16 @@ class MediaStack(MediaPlayerDevice):
             """Update ha state when dependencies update."""
             self.async_schedule_update_ha_state(True)
 
-        self.hass.helpers.event.async_track_state_change(
-            list(self._mapping.keys()), async_on_dependency_update
+        entities = []
+        for key, value in self._mapping.items():
+            entities.append(key)
+            for source_entity_id in value.values():
+                entities.append(source_entity_id)
+
+        self.async_on_remove(
+            self.hass.helpers.event.async_track_state_change(
+                entities, async_on_dependency_update
+            )
         )
 
     @property
@@ -264,7 +272,7 @@ class MediaStack(MediaPlayerDevice):
         """Return the current state of the media player."""
 
         if self._tree:
-            return list(_flatten_source_list(self._tree))
+            return list(sorted(_flatten_source_list(self._tree)))
         else:
             return None
 
