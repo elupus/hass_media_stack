@@ -47,6 +47,86 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 )
 
 
+def _get_sources(attributes):
+    source = attributes.get(ATTR_INPUT_SOURCE)
+    sources = list(attributes.get(ATTR_INPUT_SOURCE_LIST, []))
+    if source and source not in sources:
+        sources.append(source)
+    return sources
+
+
+def _flatten_source_1(tree):
+    source = tree["source"]
+    child = tree["source_list"].get(source)
+    if child:
+        return f"{source} - {_flatten_source_1(child)}"
+    else:
+        return f"{source}"
+
+
+def _flatten_source_2(tree):
+    source = tree["source"]
+    child = tree["source_list"].get(source)
+    if child:
+        return _flatten_source_2(child)
+    else:
+        return f"{tree['name']}: {source}"
+
+
+def _flatten_source_list_1(tree):
+    for source, value in tree["source_list"].items():
+        if value:
+            for x in _flatten_source_list_1(value):
+                yield f"{source} - {x}"
+        else:
+            yield f"{source}"
+
+
+def _flatten_source_list_2(tree):
+    for source, value in tree["source_list"].items():
+        if value:
+            yield from _flatten_source_list_2(value)
+        else:
+            yield f"{tree['name']}: {source}"
+
+
+_flatten_source = _flatten_source_2
+_flatten_source_list = _flatten_source_list_2
+
+
+def _get_source_tree(hass, mappings, entity_id: str, parents: set):
+    state = hass.states.get(entity_id)
+    if state is None:
+        return {}
+
+    parents = set(parents)
+    parents.add(entity_id)
+
+    result = {}
+    mapping = mappings.get(entity_id, {})
+    for source in _get_sources(state.attributes):
+        result[source] = {}
+
+        source_entity_id = mapping.get(source)
+        if not source_entity_id:
+            continue
+
+        if source_entity_id in parents:
+            _LOGGER.debug(
+                "Ignoring recursive loop: %s %s %s", entity_id, source, source_entity_id
+            )
+            continue
+
+        result[source] = _get_source_tree(hass, mappings, source_entity_id, parents)
+
+    return {
+        "entity_id": state.entity_id,
+        "name": state.name,
+        "source": state.attributes.get(ATTR_INPUT_SOURCE),
+        "source_list": result,
+    }
+
+
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the universal media players."""
     player = MediaStack(config)
@@ -61,7 +141,7 @@ class MediaStack(MediaPlayerDevice):
         """Initialize player."""
         self._mapping = config[CONF_MAPPING]
         self._name = config[CONF_NAME]
-        self._stack = []
+        self._tree = {}
 
     async def async_added_to_hass(self):
         """Subscribe to children."""
@@ -80,67 +160,21 @@ class MediaStack(MediaPlayerDevice):
         """Return the name of universal player."""
         return self._name
 
-    def _get_source_stack(self, entity_id):
-
-        stack = []
-        entity_ids = set()
-        while True:
-            data = self.hass.states.get(entity_id)
-            if data is None or data.state in OFF_STATES:
-                return stack
-
-            if entity_id in entity_ids:
-                _LOGGER.warning("Recursive media stack")
-                return stack
-            entity_ids.add(entity_id)
-            stack.append(data)
-
-            try:
-                mapping = self._mapping[entity_id]
-                source = data.attributes[ATTR_INPUT_SOURCE]
-                entity_id = mapping[source]
-            except KeyError:
-                return stack
-
-    def _get_source_tree(self, entity_id, parents=None):
-
-        def _get_sources():
-            data = self.hass.states.get(entity_id)
-            if data is None:
-                return
-            source = data.attributes.get(ATTR_INPUT_SOURCE)
-            sources = list(data.attributes.get(ATTR_INPUT_SOURCE_LIST, []))
-            if source and source not in sources:
-                sources.append(source)
-            return sources
-
-        if parents is None:
-            parents = set()
-        else:
-            parents = set(parents)
-        parents.add(entity_id)
-
-        result = {}
-        mapping = self._mapping.get(entity_id, {})
-        for source in _get_sources():
-            source_entity_id = mapping.get(source)
-            result[source] = {}
-            if not source_entity_id:
-                continue
-
-            if source_entity_id in parents:
-                _LOGGER.debug("Ignoring recursive loop: %s %s %s", entity_id, source, source_entity_id)
-                continue
-
-            result[source] = self._get_source_tree(source_entity_id, parents)
-
-        return result
-
     @property
     def _source_entity(self):
-        if not self._stack:
+
+        def _flatten(tree):
+            source = tree["source"]
+            child = tree["source_list"].get(source)
+            if child:
+                return _flatten(child)
+            else:
+                return self.hass.states.get(tree["entity_id"])
+
+        if not self._tree:
             return None
-        return self._stack[-1]
+        else:
+            return _flatten(self._tree)
 
     @property
     def _sink_entity(self):
@@ -168,9 +202,8 @@ class MediaStack(MediaPlayerDevice):
     @property
     def source(self):
         """Return the current state of the media player."""
-        if self._stack:
-            data = [x.attributes.get(ATTR_INPUT_SOURCE) for x in self._stack]
-            return " - ".join(filter(None, data))
+        if self._tree:
+            return _flatten_source(self._tree)
         else:
             return None
 
@@ -214,7 +247,9 @@ class MediaStack(MediaPlayerDevice):
 
         supported |= SUPPORT_SELECT_SOURCE
 
-        supported_volume = SUPPORT_VOLUME_MUTE | SUPPORT_VOLUME_SET | SUPPORT_VOLUME_STEP
+        supported_volume = (
+            SUPPORT_VOLUME_MUTE | SUPPORT_VOLUME_SET | SUPPORT_VOLUME_STEP
+        )
         supported &= ~supported_volume
         supported |= self._get_attribute(self._sink_entity, ATTR_SUPPORTED_FEATURES, 0)
 
@@ -244,27 +279,17 @@ class MediaStack(MediaPlayerDevice):
     def source_list(self):
         """Return the current state of the media player."""
 
-        def _flatten(tree):
-            for key, value in tree.items():
-                added = False
-                for x in _flatten(value):
-                    yield f"{key} - {x}"
-                    added = True
-
-                if not added:
-                    yield f"{key}"
-
-        state = self._sink_entity
-        if not state:
-            return []
-
-        tree = self._get_source_tree(state.entity_id)
-        return list(_flatten(tree))
+        if self._tree:
+            return list(_flatten_source_list(self._tree))
+        else:
+            return None
 
     async def async_update(self):
         """Update state in HA."""
         state = self._sink_entity
         if state:
-            self._stack = self._get_source_stack(state.entity_id)
+            self._tree = _get_source_tree(
+                self.hass, self._mapping, state.entity_id, set()
+            )
         else:
-            self._stack = []
+            self._tree = {}
