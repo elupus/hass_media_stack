@@ -4,32 +4,54 @@ import logging
 import voluptuous as vol
 
 from homeassistant.components.media_player import (
-    PLATFORM_SCHEMA,
-    MediaPlayerDevice,
-    ATTR_TO_PROPERTY,
+    ATTR_MEDIA_SEEK_POSITION,
     ATTR_MEDIA_VOLUME_LEVEL,
     ATTR_MEDIA_VOLUME_MUTED,
+    ATTR_TO_PROPERTY,
+    DOMAIN,
+    PLATFORM_SCHEMA,
+    MediaPlayerDevice,
 )
 from homeassistant.components.media_player.const import (
     ATTR_INPUT_SOURCE,
     ATTR_INPUT_SOURCE_LIST,
+    ATTR_MEDIA_CONTENT_ID,
+    ATTR_MEDIA_CONTENT_TYPE,
     ATTR_SOUND_MODE_LIST,
+    ATTR_MEDIA_SHUFFLE,
+    SERVICE_CLEAR_PLAYLIST,
+    SERVICE_PLAY_MEDIA,
     SUPPORT_SELECT_SOURCE,
     SUPPORT_VOLUME_MUTE,
     SUPPORT_VOLUME_SET,
     SUPPORT_VOLUME_STEP,
 )
 from homeassistant.const import (
-    ATTR_ENTITY_PICTURE,
-    ATTR_SUPPORTED_FEATURES,
     ATTR_ASSUMED_STATE,
+    ATTR_ENTITY_ID,
+    ATTR_ENTITY_PICTURE,
     ATTR_ICON,
+    ATTR_SUPPORTED_FEATURES,
     CONF_NAME,
+    SERVICE_MEDIA_NEXT_TRACK,
+    SERVICE_MEDIA_PAUSE,
+    SERVICE_MEDIA_PLAY,
+    SERVICE_MEDIA_PLAY_PAUSE,
+    SERVICE_MEDIA_PREVIOUS_TRACK,
+    SERVICE_MEDIA_SEEK,
+    SERVICE_MEDIA_STOP,
+    SERVICE_SHUFFLE_SET,
+    SERVICE_TURN_OFF,
+    SERVICE_TURN_ON,
+    SERVICE_VOLUME_DOWN,
+    SERVICE_VOLUME_MUTE,
+    SERVICE_VOLUME_SET,
+    SERVICE_VOLUME_UP,
     STATE_IDLE,
     STATE_OFF,
     STATE_UNAVAILABLE,
 )
-from homeassistant.core import callback, State
+from homeassistant.core import State, callback
 from homeassistant.helpers import config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
@@ -58,7 +80,7 @@ def _get_sources(attributes):
 def _flatten_source(tree):
     source = tree["source"]
     if not source:
-        return tree['name']
+        return tree["name"]
 
     child = tree["source_list"].get(source)
     if child:
@@ -69,7 +91,7 @@ def _flatten_source(tree):
 
 def _flatten_source_list(tree):
     if not tree["source_list"]:
-        yield tree['name']
+        yield tree["name"]
 
     for source, value in tree["source_list"].items():
         if value:
@@ -154,7 +176,6 @@ class MediaStack(MediaPlayerDevice):
 
     @property
     def _source_entity(self):
-
         def _flatten(tree):
             source = tree["source"]
             child = tree["source_list"].get(source)
@@ -185,11 +206,18 @@ class MediaStack(MediaPlayerDevice):
     @property
     def state(self):
         """Return the current state of the media player."""
-        data = self._source_entity
-        if data:
-            return data.state
-        else:
+        source_entity = self._source_entity
+        sink_entity = self._sink_entity
+        if sink_entity is None or sink_entity.state in OFF_STATES:
             return STATE_OFF
+
+        if source_entity is None:
+            return sink_entity.state
+
+        if source_entity.state in OFF_STATES:
+            return STATE_IDLE
+        else:
+            return source_entity.state
 
     @property
     def source(self):
@@ -275,6 +303,99 @@ class MediaStack(MediaPlayerDevice):
             return list(sorted(_flatten_source_list(self._tree)))
         else:
             return None
+
+    async def _async_call_service(self, state, service_name, service_data=None):
+        """Call service on source."""
+        if service_data is None:
+            service_data = {}
+
+        if state is None:
+            raise Exception("Unkown target entity")
+
+        service_data[ATTR_ENTITY_ID] = state.entity_id
+
+        await self.hass.services.async_call(
+            DOMAIN, service_name, service_data, blocking=True
+        )
+
+    async def _async_call_source(self, service_name, service_data=None):
+        await self._async_call_service(self._source_entity, service_name, service_data)
+
+    async def _async_call_sink(self, service_name, service_data=None):
+        await self._async_call_service(self._sink_entity, service_name, service_data)
+
+    async def async_turn_on(self):
+        """Turn the media player on."""
+        await self._async_call_source(SERVICE_TURN_ON)
+
+    async def async_turn_off(self):
+        """Turn the media player off."""
+        await self._async_call_source(SERVICE_TURN_OFF)
+
+    async def async_mute_volume(self, mute):
+        """Mute the volume."""
+        data = {ATTR_MEDIA_VOLUME_MUTED: mute}
+        await self._async_call_sink(SERVICE_VOLUME_MUTE, data)
+
+    async def async_set_volume_level(self, volume):
+        """Set volume level, range 0..1."""
+        data = {ATTR_MEDIA_VOLUME_LEVEL: volume}
+        await self._async_call_sink(SERVICE_VOLUME_SET, data)
+
+    async def async_media_play(self):
+        """Send play command."""
+        await self._async_call_source(SERVICE_MEDIA_PLAY)
+
+    async def async_media_pause(self):
+        """Send pause command."""
+        await self._async_call_source(SERVICE_MEDIA_PAUSE)
+
+    async def async_media_stop(self):
+        """Send stop command."""
+        await self._async_call_source(SERVICE_MEDIA_STOP)
+
+    async def async_media_previous_track(self):
+        """Send previous track command."""
+        await self._async_call_source(SERVICE_MEDIA_PREVIOUS_TRACK)
+
+    async def async_media_next_track(self):
+        """Send next track command."""
+        await self._async_call_source(SERVICE_MEDIA_NEXT_TRACK)
+
+    async def async_media_seek(self, position):
+        """Send seek command."""
+        data = {ATTR_MEDIA_SEEK_POSITION: position}
+        await self._async_call_source(SERVICE_MEDIA_SEEK, data)
+
+    async def async_play_media(self, media_type, media_id, **kwargs):
+        """Play a piece of media."""
+        data = {ATTR_MEDIA_CONTENT_TYPE: media_type, ATTR_MEDIA_CONTENT_ID: media_id}
+        await self._async_call_source(SERVICE_PLAY_MEDIA, data)
+
+    async def async_volume_up(self):
+        """Turn volume up for media player."""
+        await self._async_call_sink(SERVICE_VOLUME_UP)
+
+    async def async_volume_down(self):
+        """Turn volume down for media player."""
+        await self._async_call_sink(SERVICE_VOLUME_DOWN)
+
+    async def async_media_play_pause(self):
+        """Play or pause the media player."""
+        await self._async_call_source(SERVICE_MEDIA_PLAY_PAUSE)
+
+    async def async_select_source(self, source):
+        """Set the input source."""
+        raise NotImplementedError()
+
+    async def async_clear_playlist(self):
+        """Clear players playlist."""
+        await self._async_call_source(SERVICE_CLEAR_PLAYLIST)
+
+    async def async_set_shuffle(self, shuffle):
+        """Enable/disable shuffling."""
+        data = {ATTR_MEDIA_SHUFFLE: shuffle}
+        await self._async_call_source(SERVICE_SHUFFLE_SET, data)
 
     async def async_update(self):
         """Update state in HA."""
