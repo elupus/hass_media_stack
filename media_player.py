@@ -55,43 +55,27 @@ def _get_sources(attributes):
     return sources
 
 
-def _flatten_source_1(tree):
+def _flatten_source(tree):
     source = tree["source"]
+    if not source:
+        return tree['name']
+
     child = tree["source_list"].get(source)
     if child:
-        return f"{source} - {_flatten_source_1(child)}"
-    else:
-        return f"{source}"
-
-
-def _flatten_source_2(tree):
-    source = tree["source"]
-    child = tree["source_list"].get(source)
-    if child:
-        return _flatten_source_2(child)
+        return _flatten_source(child)
     else:
         return f"{tree['name']}: {source}"
 
 
-def _flatten_source_list_1(tree):
+def _flatten_source_list(tree):
+    if not tree["source_list"]:
+        yield tree['name']
+
     for source, value in tree["source_list"].items():
         if value:
-            for x in _flatten_source_list_1(value):
-                yield f"{source} - {x}"
-        else:
-            yield f"{source}"
-
-
-def _flatten_source_list_2(tree):
-    for source, value in tree["source_list"].items():
-        if value:
-            yield from _flatten_source_list_2(value)
+            yield from _flatten_source_list(value)
         else:
             yield f"{tree['name']}: {source}"
-
-
-_flatten_source = _flatten_source_2
-_flatten_source_list = _flatten_source_list_2
 
 
 def _get_source_tree(hass, mappings, entity_id: str, parents: set):
