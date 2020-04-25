@@ -1,7 +1,8 @@
 """Media Stack."""
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Any, List
 import voluptuous as vol
+import asyncio
 from dataclasses import dataclass
 
 from homeassistant.components.media_player import (
@@ -22,6 +23,7 @@ from homeassistant.components.media_player.const import (
     ATTR_MEDIA_SHUFFLE,
     SERVICE_CLEAR_PLAYLIST,
     SERVICE_PLAY_MEDIA,
+    SERVICE_SELECT_SOURCE,
     SUPPORT_SELECT_SOURCE,
     SUPPORT_VOLUME_MUTE,
     SUPPORT_VOLUME_SET,
@@ -74,12 +76,62 @@ MappingType = Dict[str, Dict[str, str]]
 
 @dataclass
 class SourceInfo:
-    """Media Tree structure."""
+    """sfsf."""
 
+    parent: "SourceInfo"
+    entity_name: str
     entity_id: str
-    name: str
     source: str
-    source_list: Dict[str, Optional['SourceInfo']]
+    active: bool
+
+    @property
+    def name(self):
+        """Name of source."""
+        if self.source:
+            return f"{self.entity_name}: {self.source}"
+        else:
+            return f"{self.entity_name}"
+
+
+def _get_parents(info: SourceInfo):
+    while info:
+        yield info.entity_id
+        info = info.parent
+
+
+def _get_root_sources(hass, mappings: MappingType, state: State, parent: SourceInfo):
+    if state is None:
+        return
+
+    parents = set(_get_parents(parent))
+    mapping = mappings.get(state.entity_id, {})
+    current = state.attributes.get(ATTR_INPUT_SOURCE)
+    sources = _get_sources(state.attributes)
+    if not sources:
+        yield parent
+        return
+
+    for source in sources:
+        active = (current == source) and (parent is None or parent.active)
+        info = SourceInfo(
+            entity_id=state.entity_id,
+            entity_name=state.name,
+            source=source,
+            parent=parent,
+            active=active,
+        )
+
+        source_entity_id = mapping.get(source)
+        if not source_entity_id or source_entity_id in parents:
+            yield info
+            continue
+
+        source_state = hass.states.get(source_entity_id)
+        if not source_state:
+            yield info
+            continue
+
+        yield from _get_root_sources(hass, mappings, source_state, info)
 
 
 def _get_sources(attributes: Dict[str, Any]):
@@ -88,62 +140,6 @@ def _get_sources(attributes: Dict[str, Any]):
     if source and source not in sources:
         sources.append(source)
     return sources
-
-
-def _flatten_source(tree: SourceInfo):
-    source = tree.source
-    if not source:
-        return tree.name
-
-    child = tree.source_list.get(source)
-    if child:
-        return _flatten_source(child)
-    else:
-        return f"{tree.name}: {source}"
-
-
-def _flatten_source_list(tree: SourceInfo):
-    if not tree.source_list:
-        yield tree.name
-
-    for source, value in tree.source_list.items():
-        if value:
-            yield from _flatten_source_list(value)
-        else:
-            yield f"{tree.name}: {source}"
-
-
-def _get_source_tree(hass, mappings: MappingType, entity_id: str, parents: set) -> Optional[SourceInfo]:
-    state = hass.states.get(entity_id)
-    if state is None:
-        return None
-
-    parents = set(parents)
-    parents.add(entity_id)
-
-    result: Dict[str, Optional['SourceInfo']] = {}
-    mapping = mappings.get(entity_id, {})
-    for source in _get_sources(state.attributes):
-        result[source] = None
-
-        source_entity_id = mapping.get(source)
-        if not source_entity_id:
-            continue
-
-        if source_entity_id in parents:
-            _LOGGER.debug(
-                "Ignoring recursive loop: %s %s %s", entity_id, source, source_entity_id
-            )
-            continue
-
-        result[source] = _get_source_tree(hass, mappings, source_entity_id, parents)
-
-    return SourceInfo(
-        entity_id=state.entity_id,
-        name=state.name,
-        source=state.attributes.get(ATTR_INPUT_SOURCE),
-        source_list=result,
-    )
 
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
@@ -157,7 +153,7 @@ class MediaStack(MediaPlayerDevice):
     """Representation of an universal media player."""
 
     _mapping: MappingType
-    _tree: Optional[SourceInfo] = None
+    _sources: List[SourceInfo] = []
     _name: str
 
     def __init__(self, config):
@@ -192,18 +188,11 @@ class MediaStack(MediaPlayerDevice):
 
     @property
     def _source_entity(self):
-        def _flatten(tree):
-            source = tree.source
-            child = tree.source_list.get(source)
-            if child:
-                return _flatten(child)
-            else:
-                return self.hass.states.get(tree.entity_id)
-
-        if not self._tree:
-            return None
+        entity_id = next((x.entity_id for x in self._sources if x.active), None)
+        if entity_id:
+            return self.hass.states.get(entity_id)
         else:
-            return _flatten(self._tree)
+            return None
 
     @property
     def _sink_entity(self):
@@ -237,11 +226,8 @@ class MediaStack(MediaPlayerDevice):
 
     @property
     def source(self):
-        """Return the current state of the media player."""
-        if self._tree:
-            return _flatten_source(self._tree)
-        else:
-            return None
+        """Return the current source of the media player."""
+        return next((x.name for x in self._sources if x.active), None)
 
     @property
     def volume_level(self):
@@ -314,11 +300,7 @@ class MediaStack(MediaPlayerDevice):
     @property
     def source_list(self):
         """Return the current state of the media player."""
-
-        if self._tree:
-            return list(sorted(_flatten_source_list(self._tree)))
-        else:
-            return None
+        return list(sorted([x.name for x in self._sources]))
 
     async def _async_call_service(self, state, service_name, service_data=None):
         """Call service on source."""
@@ -402,7 +384,23 @@ class MediaStack(MediaPlayerDevice):
 
     async def async_select_source(self, source):
         """Set the input source."""
-        raise NotImplementedError()
+        info = next((x for x in self._sources if x.name == source), None)
+        if not info:
+            raise KeyError(f"Unable to find {source}")
+
+        calls = []
+        while info:
+            calls.append(
+                self.hass.services.async_call(
+                    DOMAIN,
+                    SERVICE_SELECT_SOURCE,
+                    {ATTR_ENTITY_ID: info.entity_id, ATTR_INPUT_SOURCE: info.source},
+                    blocking=True,
+                )
+            )
+            info = info.parent
+        if calls:
+            await asyncio.gather(*calls)
 
     async def async_clear_playlist(self):
         """Clear players playlist."""
@@ -415,10 +413,6 @@ class MediaStack(MediaPlayerDevice):
 
     async def async_update(self):
         """Update state in HA."""
-        state = self._sink_entity
-        if state:
-            self._tree = _get_source_tree(
-                self.hass, self._mapping, state.entity_id, set()
-            )
-        else:
-            self._tree = None
+        self._sources = list(
+            _get_root_sources(self.hass, self._mapping, self._sink_entity, None)
+        )
