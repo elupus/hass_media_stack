@@ -1,7 +1,8 @@
 """Media Stack."""
 import logging
-
+from typing import Dict, Optional, Any
 import voluptuous as vol
+from dataclasses import dataclass
 
 from homeassistant.components.media_player import (
     ATTR_MEDIA_SEEK_POSITION,
@@ -68,8 +69,20 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     },
 )
 
+MappingType = Dict[str, Dict[str, str]]
 
-def _get_sources(attributes):
+
+@dataclass
+class SourceInfo:
+    """Media Tree structure."""
+
+    entity_id: str
+    name: str
+    source: str
+    source_list: Dict[str, Optional['SourceInfo']]
+
+
+def _get_sources(attributes: Dict[str, Any]):
     source = attributes.get(ATTR_INPUT_SOURCE)
     sources = list(attributes.get(ATTR_INPUT_SOURCE_LIST, []))
     if source and source not in sources:
@@ -77,41 +90,41 @@ def _get_sources(attributes):
     return sources
 
 
-def _flatten_source(tree):
-    source = tree["source"]
+def _flatten_source(tree: SourceInfo):
+    source = tree.source
     if not source:
-        return tree["name"]
+        return tree.name
 
-    child = tree["source_list"].get(source)
+    child = tree.source_list.get(source)
     if child:
         return _flatten_source(child)
     else:
-        return f"{tree['name']}: {source}"
+        return f"{tree.name}: {source}"
 
 
-def _flatten_source_list(tree):
-    if not tree["source_list"]:
-        yield tree["name"]
+def _flatten_source_list(tree: SourceInfo):
+    if not tree.source_list:
+        yield tree.name
 
-    for source, value in tree["source_list"].items():
+    for source, value in tree.source_list.items():
         if value:
             yield from _flatten_source_list(value)
         else:
-            yield f"{tree['name']}: {source}"
+            yield f"{tree.name}: {source}"
 
 
-def _get_source_tree(hass, mappings, entity_id: str, parents: set):
+def _get_source_tree(hass, mappings: MappingType, entity_id: str, parents: set) -> Optional[SourceInfo]:
     state = hass.states.get(entity_id)
     if state is None:
-        return {}
+        return None
 
     parents = set(parents)
     parents.add(entity_id)
 
-    result = {}
+    result: Dict[str, Optional['SourceInfo']] = {}
     mapping = mappings.get(entity_id, {})
     for source in _get_sources(state.attributes):
-        result[source] = {}
+        result[source] = None
 
         source_entity_id = mapping.get(source)
         if not source_entity_id:
@@ -125,12 +138,12 @@ def _get_source_tree(hass, mappings, entity_id: str, parents: set):
 
         result[source] = _get_source_tree(hass, mappings, source_entity_id, parents)
 
-    return {
-        "entity_id": state.entity_id,
-        "name": state.name,
-        "source": state.attributes.get(ATTR_INPUT_SOURCE),
-        "source_list": result,
-    }
+    return SourceInfo(
+        entity_id=state.entity_id,
+        name=state.name,
+        source=state.attributes.get(ATTR_INPUT_SOURCE),
+        source_list=result,
+    )
 
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
@@ -143,11 +156,14 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 class MediaStack(MediaPlayerDevice):
     """Representation of an universal media player."""
 
+    _mapping: MappingType
+    _tree: Optional[SourceInfo] = None
+    _name: str
+
     def __init__(self, config):
         """Initialize player."""
         self._mapping = config[CONF_MAPPING]
         self._name = config[CONF_NAME]
-        self._tree = {}
 
     async def async_added_to_hass(self):
         """Subscribe to children."""
@@ -177,12 +193,12 @@ class MediaStack(MediaPlayerDevice):
     @property
     def _source_entity(self):
         def _flatten(tree):
-            source = tree["source"]
-            child = tree["source_list"].get(source)
+            source = tree.source
+            child = tree.source_list.get(source)
             if child:
                 return _flatten(child)
             else:
-                return self.hass.states.get(tree["entity_id"])
+                return self.hass.states.get(tree.entity_id)
 
         if not self._tree:
             return None
@@ -405,4 +421,4 @@ class MediaStack(MediaPlayerDevice):
                 self.hass, self._mapping, state.entity_id, set()
             )
         else:
-            self._tree = {}
+            self._tree = None
