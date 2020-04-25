@@ -1,0 +1,7 @@
+{
+    "name": "Media Stack",
+    "content_in_root": true,
+    "domains": [
+      "media_player"
+    ]
+  }
