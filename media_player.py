@@ -107,18 +107,24 @@ def _get_root_sources(hass, mappings: MappingType, state: State, parent: SourceI
     mapping = mappings.get(state.entity_id, {})
     current = state.attributes.get(ATTR_INPUT_SOURCE)
     sources = _get_sources(state.attributes)
-    if not sources:
-        yield parent
+    parent_active = parent is None or parent.active
+    if not sources or state.state in OFF_STATES:
+        yield SourceInfo(
+            entity_id=state.entity_id,
+            entity_name=state.name,
+            source=current,
+            parent=parent,
+            active=parent_active,
+        )
         return
 
     for source in sources:
-        active = (current == source) and (parent is None or parent.active)
         info = SourceInfo(
             entity_id=state.entity_id,
             entity_name=state.name,
             source=source,
             parent=parent,
-            active=active,
+            active=parent_active and (current == source),
         )
 
         source_entity_id = mapping.get(source)
@@ -200,6 +206,10 @@ class MediaStack(MediaPlayerDevice):
             state = self.hass.states.get(entity_id)
             if state and state.state not in OFF_STATES:
                 return state
+
+        entity_id = next(iter(self._mapping), None)
+        if entity_id:
+            return self.hass.states.get(entity_id)
         return None
 
     def _get_attribute(self, state: State, attribute: str, default=None):
@@ -390,14 +400,15 @@ class MediaStack(MediaPlayerDevice):
 
         calls = []
         while info:
-            calls.append(
-                self.hass.services.async_call(
-                    DOMAIN,
-                    SERVICE_SELECT_SOURCE,
-                    {ATTR_ENTITY_ID: info.entity_id, ATTR_INPUT_SOURCE: info.source},
-                    blocking=True,
+            if info.source:
+                calls.append(
+                    self.hass.services.async_call(
+                        DOMAIN,
+                        SERVICE_SELECT_SOURCE,
+                        {ATTR_ENTITY_ID: info.entity_id, ATTR_INPUT_SOURCE: info.source},
+                        blocking=True,
+                    )
                 )
-            )
             info = info.parent
         if calls:
             await asyncio.gather(*calls)
