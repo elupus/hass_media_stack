@@ -107,14 +107,14 @@ def _get_root_sources(hass, mappings: MappingType, state: State, parent: SourceI
     mapping = mappings.get(state.entity_id, {})
     current = state.attributes.get(ATTR_INPUT_SOURCE)
     sources = _get_sources(state.attributes)
-    parent_active = parent is None or parent.active
-    if not sources or state.state in OFF_STATES:
+    active = (parent is None or parent.active) and state.state != STATE_OFF
+    if not sources:
         yield SourceInfo(
             entity_id=state.entity_id,
             entity_name=state.name,
             source=current,
             parent=parent,
-            active=parent_active,
+            active=active,
         )
         return
 
@@ -124,7 +124,7 @@ def _get_root_sources(hass, mappings: MappingType, state: State, parent: SourceI
             entity_name=state.name,
             source=source,
             parent=parent,
-            active=parent_active and (current == source),
+            active=active and (current == source),
         )
 
         source_entity_id = mapping.get(source)
@@ -224,7 +224,7 @@ class MediaStack(MediaPlayerDevice):
         source_entity = self._source_entity
         sink_entity = self._sink_entity
         if sink_entity is None or sink_entity.state in OFF_STATES:
-            return STATE_OFF
+            return STATE_IDLE
 
         if source_entity is None:
             return sink_entity.state
