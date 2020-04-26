@@ -409,6 +409,15 @@ class MediaStack(MediaPlayerDevice):
                         blocking=True,
                     )
                 )
+            else:
+                calls.append(
+                    self.hass.services.async_call(
+                        DOMAIN,
+                        SERVICE_TURN_ON,
+                        {ATTR_ENTITY_ID: info.entity_id},
+                        blocking=True,
+                    )
+                )
             info = info.parent
         if calls:
             await asyncio.gather(*calls)
