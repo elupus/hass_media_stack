@@ -1,6 +1,6 @@
 """Media Stack."""
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Generator
 import voluptuous as vol
 import asyncio
 from dataclasses import dataclass
@@ -93,13 +93,15 @@ class SourceInfo:
             return f"{self.entity_name}"
 
 
-def _get_parents(info: SourceInfo):
+def _get_parents(info: SourceInfo) -> Generator[SourceInfo, None, None]:
     while info:
         yield info
         info = info.parent
 
 
-def _get_root_sources(hass, mappings: MappingType, state: State, parent: SourceInfo):
+def _get_root_sources(
+    hass, mappings: MappingType, state: State, parent: SourceInfo
+) -> Generator[SourceInfo, None, None]:
     if state is None:
         return
 
@@ -140,7 +142,7 @@ def _get_root_sources(hass, mappings: MappingType, state: State, parent: SourceI
         yield from _get_root_sources(hass, mappings, source_state, info)
 
 
-def _get_sources(attributes: Dict[str, Any]):
+def _get_sources(attributes: Dict[str, Any]) -> List[str]:
     source = attributes.get(ATTR_INPUT_SOURCE)
     sources = list(attributes.get(ATTR_INPUT_SOURCE_LIST, []))
     if source and source not in sources:
@@ -148,7 +150,14 @@ def _get_sources(attributes: Dict[str, Any]):
     return sources
 
 
-async def _switch_source(hass, entity_id: str, source: Optional[str]):
+def _all_entities(mapping: Dict[str, Dict[str, str]]) -> Generator[str, None, None]:
+    for entity_id, linked_entity_ids in mapping.items():
+        yield entity_id
+        for linked_entity_id in linked_entity_ids:
+            yield linked_entity_id
+
+
+async def _switch_source(hass, entity_id: str, source: Optional[str]) -> None:
     state = hass.states.get(entity_id)
     if state.state == STATE_OFF:
         await hass.services.async_call(
@@ -354,7 +363,12 @@ class MediaStack(MediaPlayerDevice):
 
     async def async_turn_off(self):
         """Turn the media player off."""
-        await self._async_call_source(SERVICE_TURN_OFF)
+        await asyncio.gather(
+            *[
+                self._async_call_service(entity_id, SERVICE_TURN_OFF)
+                for entity_id in set(_all_entities(self._mapping))
+            ]
+        )
 
     async def async_mute_volume(self, mute):
         """Mute the volume."""
