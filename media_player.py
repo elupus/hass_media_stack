@@ -1,6 +1,6 @@
 """Media Stack."""
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import voluptuous as vol
 import asyncio
 from dataclasses import dataclass
@@ -95,7 +95,7 @@ class SourceInfo:
 
 def _get_parents(info: SourceInfo):
     while info:
-        yield info.entity_id
+        yield info
         info = info.parent
 
 
@@ -103,7 +103,7 @@ def _get_root_sources(hass, mappings: MappingType, state: State, parent: SourceI
     if state is None:
         return
 
-    parents = set(_get_parents(parent))
+    parents = set(x.entity_id for x in _get_parents(parent))
     mapping = mappings.get(state.entity_id, {})
     current = state.attributes.get(ATTR_INPUT_SOURCE)
     sources = _get_sources(state.attributes)
@@ -146,6 +146,22 @@ def _get_sources(attributes: Dict[str, Any]):
     if source and source not in sources:
         sources.append(source)
     return sources
+
+
+async def _switch_source(hass, entity_id: str, source: Optional[str]):
+    state = hass.states.get(entity_id)
+    if state.state == STATE_OFF:
+        await hass.services.async_call(
+            DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: entity_id}, blocking=True,
+        )
+
+    if state.attributes.get(ATTR_INPUT_SOURCE) != source:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SELECT_SOURCE,
+            {ATTR_ENTITY_ID: entity_id, ATTR_INPUT_SOURCE: source},
+            blocking=True,
+        )
 
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
@@ -398,29 +414,12 @@ class MediaStack(MediaPlayerDevice):
         if not info:
             raise KeyError(f"Unable to find {source}")
 
-        calls = []
-        while info:
-            if info.source:
-                calls.append(
-                    self.hass.services.async_call(
-                        DOMAIN,
-                        SERVICE_SELECT_SOURCE,
-                        {ATTR_ENTITY_ID: info.entity_id, ATTR_INPUT_SOURCE: info.source},
-                        blocking=True,
-                    )
-                )
-            else:
-                calls.append(
-                    self.hass.services.async_call(
-                        DOMAIN,
-                        SERVICE_TURN_ON,
-                        {ATTR_ENTITY_ID: info.entity_id},
-                        blocking=True,
-                    )
-                )
-            info = info.parent
-        if calls:
-            await asyncio.gather(*calls)
+        await asyncio.gather(
+            *[
+                _switch_source(self.hass, x.entity_id, x.source)
+                for x in _get_parents(info)
+            ]
+        )
 
     async def async_clear_playlist(self):
         """Clear players playlist."""
