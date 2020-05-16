@@ -50,6 +50,7 @@ from homeassistant.const import (
     SERVICE_VOLUME_MUTE,
     SERVICE_VOLUME_SET,
     SERVICE_VOLUME_UP,
+    STATE_STANDBY,
     STATE_IDLE,
     STATE_OFF,
     STATE_UNAVAILABLE,
@@ -61,7 +62,7 @@ _LOGGER = logging.getLogger(__name__)
 
 CONF_MAPPING = "mapping"
 
-OFF_STATES = [STATE_IDLE, STATE_OFF, STATE_UNAVAILABLE]
+OFF_STATES = [STATE_OFF, STATE_STANDBY, STATE_UNAVAILABLE]
 
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -249,13 +250,13 @@ class MediaStack(MediaPlayerDevice):
         source_entity = self._source_entity
         sink_entity = self._sink_entity
         if sink_entity is None or sink_entity.state in OFF_STATES:
-            return STATE_IDLE
+            return STATE_STANDBY
 
         if source_entity is None:
             return sink_entity.state
 
         if source_entity.state in OFF_STATES:
-            return STATE_IDLE
+            return STATE_STANDBY
         else:
             return source_entity.state
 
