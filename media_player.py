@@ -12,7 +12,7 @@ from homeassistant.components.media_player import (
     ATTR_TO_PROPERTY,
     DOMAIN,
     PLATFORM_SCHEMA,
-    MediaPlayerDevice,
+    MediaPlayerEntity,
 )
 from homeassistant.components.media_player.const import (
     ATTR_INPUT_SOURCE,
@@ -181,7 +181,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     async_add_entities([player])
 
 
-class MediaStack(MediaPlayerDevice):
+class MediaStack(MediaPlayerEntity):
     """Representation of an universal media player."""
 
     _mapping: MappingType
