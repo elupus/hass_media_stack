@@ -1,6 +1,6 @@
 """Media Stack."""
 import logging
-from typing import Dict, Any, List, Optional, Generator
+from typing import Dict, Any, List, Optional, Generator, Set
 import voluptuous as vol
 import asyncio
 from dataclasses import dataclass
@@ -51,7 +51,6 @@ from homeassistant.const import (
     SERVICE_VOLUME_SET,
     SERVICE_VOLUME_UP,
     STATE_STANDBY,
-    STATE_IDLE,
     STATE_OFF,
     STATE_UNAVAILABLE,
 )
@@ -151,11 +150,13 @@ def _get_sources(attributes: Dict[str, Any]) -> List[str]:
     return sources
 
 
-def _all_entities(mapping: Dict[str, Dict[str, str]]) -> Generator[str, None, None]:
+def _all_entities(mapping: Dict[str, Dict[str, str]]) -> Set[str]:
+    entities = set()
     for entity_id, linked_entity_ids in mapping.items():
-        yield entity_id
-        for linked_entity_id in linked_entity_ids:
-            yield linked_entity_id
+        entities.add(entity_id)
+        for linked_entity_id in linked_entity_ids.values():
+            entities.add(linked_entity_id)
+    return entities
 
 
 async def _switch_source(hass, entity_id: str, source: Optional[str]) -> None:
@@ -366,8 +367,10 @@ class MediaStack(MediaPlayerEntity):
         """Turn the media player off."""
         await asyncio.gather(
             *[
-                self._async_call_service(entity_id, SERVICE_TURN_OFF)
-                for entity_id in set(_all_entities(self._mapping))
+                self.hass.services.async_call(
+                    DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: entity_id}, blocking=True
+                )
+                for entity_id in _all_entities(self._mapping)
             ]
         )
 
