@@ -40,11 +40,11 @@ MOCK_CONFIG = {
     "mapping": {
         "media_player.stereo": {
             "DISPLAY": "media_player.tv",
-            "PVR": "media_player.pvr",
+            "GAME": "media_player.playstation",
         },
         "media_player.tv": {
             "HDMI 1": "media_player.stereo",
-            "HDMI 2": "media_player.playstation",
+            "HDMI 3": "media_player.pvr",
         },
     },
 }
@@ -142,16 +142,16 @@ async def test_stereo_and_tv(hass: HomeAssistantType, media_stack):
 
     state = await set_and_get(
         hass,
-        "media_player.stereo",
+        "media_player.tv",
         "on",
         {
             **MOCK_STEREO_ATTRIBUTES,
             "source_list": MOCK_STEREO_SOURCE_LIST,
-            "source": "PVR",
+            "source": "HDMI 3",
         },
     )
     assert state.state == "on"
-    assert state.attributes.get("source") == "stereo: PVR"
+    assert state.attributes.get("source") == "tv: HDMI 3"
 
     state = await set_and_get(
         hass,
