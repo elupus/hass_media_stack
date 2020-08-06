@@ -92,11 +92,27 @@ async def test_tv_only(hass: HomeAssistantType, media_stack):
         hass,
         "media_player.tv",
         "on",
-        {**MOCK_TV_ATTRIBUTES, "source_list": MOCK_TV_SOURCE_LIST, "source": "HDMI 1"},
+        {**MOCK_TV_ATTRIBUTES, "source_list": MOCK_TV_SOURCE_LIST, "source": "HDMI 3"},
     )
     assert state.state == "on"
-    assert state.attributes.get("source") == "tv: HDMI 1"
+    assert state.attributes.get("source") == "tv: HDMI 3"
+    assert state.attributes.get("source_entity_id") == "media_player.tv"
+    assert state.attributes.get("sink_entity_id") == "media_player.tv"
 
+    state = await set_and_get(
+        hass,
+        "media_player.pvr",
+        "on",
+        {
+            **MOCK_STEREO_ATTRIBUTES,
+            "source_list": MOCK_PVR_SOURCE_LIST,
+            "source": "BBC",
+        },
+    )
+    assert state.state == "on"
+    assert state.attributes.get("source") == "pvr: BBC"
+    assert state.attributes.get("source_entity_id") == "media_player.pvr"
+    assert state.attributes.get("sink_entity_id") == "media_player.tv"
 
 async def test_stereo_only(hass: HomeAssistantType, media_stack):
     state = await set_and_get(
@@ -126,6 +142,8 @@ async def test_stereo_and_tv(hass: HomeAssistantType, media_stack):
     )
     assert state.state == "on"
     assert state.attributes.get("source") == "stereo: DISPLAY"
+    assert state.attributes.get("source_entity_id") == "media_player.stereo"
+    assert state.attributes.get("sink_entity_id") == "media_player.stereo"
 
     state = await set_and_get(
         hass,
@@ -139,6 +157,8 @@ async def test_stereo_and_tv(hass: HomeAssistantType, media_stack):
     )
     assert state.state == "on"
     assert state.attributes.get("source") == "tv: Channels"
+    assert state.attributes.get("source_entity_id") == "media_player.tv"
+    assert state.attributes.get("sink_entity_id") == "media_player.stereo"
 
     state = await set_and_get(
         hass,
@@ -152,6 +172,8 @@ async def test_stereo_and_tv(hass: HomeAssistantType, media_stack):
     )
     assert state.state == "on"
     assert state.attributes.get("source") == "tv: HDMI 3"
+    assert state.attributes.get("source_entity_id") == "media_player.tv"
+    assert state.attributes.get("sink_entity_id") == "media_player.stereo"
 
     state = await set_and_get(
         hass,
@@ -165,7 +187,8 @@ async def test_stereo_and_tv(hass: HomeAssistantType, media_stack):
     )
     assert state.state == "on"
     assert state.attributes.get("source") == "pvr: BBC"
-
+    assert state.attributes.get("source_entity_id") == "media_player.pvr"
+    assert state.attributes.get("sink_entity_id") == "media_player.stereo"
 
 
 async def test_loop(hass: HomeAssistantType, media_stack):

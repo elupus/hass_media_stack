@@ -297,6 +297,11 @@ class MediaStack(MediaPlayerEntity):
             if value is not None:
                 attrs[attr] = value
 
+        if self._source_entity:
+            attrs["source_entity_id"] = self._source_entity.entity_id
+        if self._sink_entity:
+            attrs["sink_entity_id"] = self._sink_entity.entity_id
+
         return attrs
 
     @property
