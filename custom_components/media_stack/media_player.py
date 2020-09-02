@@ -438,6 +438,17 @@ class MediaStack(MediaPlayerEntity):
         if entity_id == self.entity_id:
             return
 
+        info = next((x for x in self._sources if x.entity_id == entity_id), None)
+        if not info:
+            raise KeyError(f"Unable to find {entity_id} in source chain")
+
+        await asyncio.gather(
+            *[
+                _switch_source(self.hass, x.entity_id, x.source)
+                for x in _get_parents(info)
+            ]
+        )
+
         component = self.hass.data[DOMAIN]
         player: MediaPlayerEntity = component.get_entity(entity_id)
         if player is None:
