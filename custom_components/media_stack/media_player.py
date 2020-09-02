@@ -170,7 +170,10 @@ async def _switch_source(hass, entity_id: str, source: Optional[str]) -> None:
     state = hass.states.get(entity_id)
     if state.state == STATE_OFF:
         await hass.services.async_call(
-            DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: entity_id}, blocking=True,
+            DOMAIN,
+            SERVICE_TURN_ON,
+            {ATTR_ENTITY_ID: entity_id},
+            blocking=True,
         )
 
     if state.attributes.get(ATTR_INPUT_SOURCE) != source:
@@ -319,7 +322,10 @@ class MediaStack(MediaPlayerEntity):
         supported |= SUPPORT_SELECT_SOURCE
 
         supported &= ~SUPPORTED_SINK
-        supported |= self._get_attribute(self._sink_entity, ATTR_SUPPORTED_FEATURES, 0) & SUPPORTED_SINK
+        supported |= (
+            self._get_attribute(self._sink_entity, ATTR_SUPPORTED_FEATURES, 0)
+            & SUPPORTED_SINK
+        )
 
         supported_any = 0
         for entity_id in _all_entities(self._mapping):
@@ -475,15 +481,20 @@ class MediaStack(MediaPlayerEntity):
         sources = []
         for entity_id in _all_entities(self._mapping):
             state = self.hass.states.get(entity_id)
-            if self._get_attribute(state, ATTR_SUPPORTED_FEATURES) & SUPPORT_BROWSE_MEDIA:
-                sources.append({
-                    "title": state.name,
-                    "media_content_id": entity_id,
-                    "media_content_type": "library",
-                    "can_play": False,
-                    "can_expand": True,
-                    "childres": []
-                })
+            if (
+                self._get_attribute(state, ATTR_SUPPORTED_FEATURES)
+                & SUPPORT_BROWSE_MEDIA
+            ):
+                sources.append(
+                    {
+                        "title": state.name,
+                        "media_content_id": entity_id,
+                        "media_content_type": "library",
+                        "can_play": False,
+                        "can_expand": True,
+                        "childres": [],
+                    }
+                )
 
         root = {
             "title": self.name,
@@ -495,7 +506,9 @@ class MediaStack(MediaPlayerEntity):
 
         return root
 
-    async def _async_browse_media_source(self, entity_id, media_content_type=None, media_content_id=None):
+    async def _async_browse_media_source(
+        self, entity_id, media_content_type=None, media_content_id=None
+    ):
         component = self.hass.data[DOMAIN]
         player: MediaPlayerEntity = component.get_entity(entity_id)
         if player is None:
@@ -507,14 +520,10 @@ class MediaStack(MediaPlayerEntity):
             copy = dict(data)
             copy["media_content_id"] = f"{entity_id}:{data['media_content_id']}"
             if "children" in data:
-                copy["children"] = [
-                    _add_prefix(child)
-                    for child in data["children"]
-                ]
+                copy["children"] = [_add_prefix(child) for child in data["children"]]
             return copy
 
         return _add_prefix(result)
-
 
     async def async_browse_media(self, media_content_type=None, media_content_id=None):
         """Implement the websocket media browsing helper."""
@@ -525,8 +534,9 @@ class MediaStack(MediaPlayerEntity):
             if media_content_id == "":
                 media_content_id = None
                 media_content_type = None
-            return await self._async_browse_media_source(entity_id, media_content_type, media_content_id)
-
+            return await self._async_browse_media_source(
+                entity_id, media_content_type, media_content_id
+            )
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs) -> None:
         """Play media."""
