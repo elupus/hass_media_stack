@@ -25,10 +25,14 @@ from homeassistant.components.media_player.const import (
     SERVICE_PLAY_MEDIA,
     SERVICE_SELECT_SOURCE,
     SUPPORT_SELECT_SOURCE,
+    SUPPORT_BROWSE_MEDIA,
+    SUPPORT_PLAY_MEDIA,
     SUPPORT_VOLUME_MUTE,
     SUPPORT_VOLUME_SET,
     SUPPORT_VOLUME_STEP,
 )
+from homeassistant.components.media_player.errors import BrowseError
+
 from homeassistant.const import (
     ATTR_ASSUMED_STATE,
     ATTR_ENTITY_ID,
@@ -56,6 +60,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import State, callback
 from homeassistant.helpers import config_validation as cv
+from voluptuous.schema_builder import Self
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,6 +68,8 @@ CONF_MAPPING = "mapping"
 
 OFF_STATES = [STATE_OFF, STATE_STANDBY, STATE_UNAVAILABLE]
 
+SUPPORTED_ANY = SUPPORT_BROWSE_MEDIA | SUPPORT_PLAY_MEDIA
+SUPPORTED_SINK = SUPPORT_VOLUME_MUTE | SUPPORT_VOLUME_SET | SUPPORT_VOLUME_STEP
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -311,11 +318,16 @@ class MediaStack(MediaPlayerEntity):
 
         supported |= SUPPORT_SELECT_SOURCE
 
-        supported_volume = (
-            SUPPORT_VOLUME_MUTE | SUPPORT_VOLUME_SET | SUPPORT_VOLUME_STEP
-        )
-        supported &= ~supported_volume
-        supported |= self._get_attribute(self._sink_entity, ATTR_SUPPORTED_FEATURES, 0)
+        supported &= ~SUPPORTED_SINK
+        supported |= self._get_attribute(self._sink_entity, ATTR_SUPPORTED_FEATURES, 0) & SUPPORTED_SINK
+
+        supported_any = 0
+        for entity_id in _all_entities(self._mapping):
+            state = self.hass.states.get(entity_id)
+            supported_any |= self._get_attribute(state, ATTR_SUPPORTED_FEATURES, 0)
+
+        supported &= ~SUPPORTED_ANY
+        supported |= supported_any & SUPPORTED_ANY
 
         return supported
 
@@ -458,3 +470,74 @@ class MediaStack(MediaPlayerEntity):
         self._sources = list(
             _get_root_sources(self.hass, self._mapping, self._sink_entity, None)
         )
+
+    async def _async_browse_media_root(self):
+        sources = []
+        for entity_id in _all_entities(self._mapping):
+            state = self.hass.states.get(entity_id)
+            if self._get_attribute(state, ATTR_SUPPORTED_FEATURES) & SUPPORT_BROWSE_MEDIA:
+                sources.append({
+                    "title": state.name,
+                    "media_content_id": entity_id,
+                    "media_content_type": "library",
+                    "can_play": False,
+                    "can_expand": True,
+                    "childres": []
+                })
+
+        root = {
+            "title": self.name,
+            "media_content_id": self.entity_id,
+            "media_content_type": "library",
+            "can_play": False,
+            "children": sources,
+        }
+
+        return root
+
+    async def _async_browse_media_source(self, entity_id, media_content_type=None, media_content_id=None):
+        component = self.hass.data[DOMAIN]
+        player: MediaPlayerEntity = component.get_entity(entity_id)
+        if player is None:
+            raise BrowseError(f"Unable to find entity_id {entity_id}")
+
+        result = await player.async_browse_media(media_content_type, media_content_id)
+
+        def _add_prefix(data):
+            copy = dict(data)
+            copy["media_content_id"] = f"{entity_id}:{data['media_content_id']}"
+            if "children" in data:
+                copy["children"] = [
+                    _add_prefix(child)
+                    for child in data["children"]
+                ]
+            return copy
+
+        return _add_prefix(result)
+
+
+    async def async_browse_media(self, media_content_type=None, media_content_id=None):
+        """Implement the websocket media browsing helper."""
+        if media_content_id in (None, self.entity_id):
+            return await self._async_browse_media_root()
+        else:
+            entity_id, _, media_content_id = media_content_id.partition(":")
+            if media_content_id == "":
+                media_content_id = None
+                media_content_type = None
+            return await self._async_browse_media_source(entity_id, media_content_type, media_content_id)
+
+
+    async def async_play_media(self, media_type: str, media_id: str, **kwargs) -> None:
+        """Play media."""
+
+        entity_id, _, sub_id = media_id.partition(":")
+        if entity_id == self.entity_id:
+            return
+
+        component = self.hass.data[DOMAIN]
+        player: MediaPlayerEntity = component.get_entity(entity_id)
+        if player is None:
+            raise Exception(f"Unable to find entity_id {entity_id}")
+
+        await player.async_play_media(media_type, sub_id)
