@@ -434,8 +434,16 @@ class MediaStack(MediaPlayerEntity):
 
     async def async_play_media(self, media_type, media_id, **kwargs):
         """Play a piece of media."""
-        data = {ATTR_MEDIA_CONTENT_TYPE: media_type, ATTR_MEDIA_CONTENT_ID: media_id}
-        await self._async_call_source(SERVICE_PLAY_MEDIA, data)
+        entity_id, _, sub_id = media_id.partition(":")
+        if entity_id == self.entity_id:
+            return
+
+        component = self.hass.data[DOMAIN]
+        player: MediaPlayerEntity = component.get_entity(entity_id)
+        if player is None:
+            raise Exception(f"Unable to find entity_id {entity_id}")
+
+        await player.async_play_media(media_type, sub_id, **kwargs)
 
     async def async_volume_up(self):
         """Turn volume up for media player."""
@@ -537,17 +545,3 @@ class MediaStack(MediaPlayerEntity):
             return await self._async_browse_media_source(
                 entity_id, media_content_type, media_content_id
             )
-
-    async def async_play_media(self, media_type: str, media_id: str, **kwargs) -> None:
-        """Play media."""
-
-        entity_id, _, sub_id = media_id.partition(":")
-        if entity_id == self.entity_id:
-            return
-
-        component = self.hass.data[DOMAIN]
-        player: MediaPlayerEntity = component.get_entity(entity_id)
-        if player is None:
-            raise Exception(f"Unable to find entity_id {entity_id}")
-
-        await player.async_play_media(media_type, sub_id)
