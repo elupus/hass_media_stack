@@ -191,6 +191,45 @@ async def test_stereo_and_tv(hass: HomeAssistantType, media_stack):
     assert state.attributes.get("sink_entity_id") == "media_player.stereo"
 
 
+async def test_stereo_and_tv_playstation(hass: HomeAssistantType, media_stack):
+
+    state = await set_and_get(
+        hass,
+        "media_player.tv",
+        "on",
+        {
+            **MOCK_STEREO_ATTRIBUTES,
+            "source_list": MOCK_TV_SOURCE_LIST,
+            "source": "HDMI 1",
+        },
+    )
+
+    state = await set_and_get(
+        hass,
+        "media_player.stereo",
+        "on",
+        {
+            **MOCK_STEREO_ATTRIBUTES,
+            "source_list": MOCK_STEREO_SOURCE_LIST,
+            "source": "GAME",
+        },
+    )
+
+    state = await set_and_get(
+        hass,
+        "media_player.playstation",
+        "off",
+        {
+            **MOCK_STEREO_ATTRIBUTES,
+        },
+    )
+
+    assert state.state == "standby"
+    assert state.attributes.get("source") == "playstation"
+    assert state.attributes.get("source_entity_id") == "media_player.playstation"
+    assert state.attributes.get("sink_entity_id") == "media_player.stereo"
+
+
 async def test_loop(hass: HomeAssistantType, media_stack):
     """Verify that we stop on loops."""
     state = await set_and_get(

@@ -116,7 +116,7 @@ def _get_root_sources(
     mapping = mappings.get(state.entity_id, {})
     current = state.attributes.get(ATTR_INPUT_SOURCE)
     sources = _get_sources(state.attributes)
-    active = (parent is None or parent.active) and state.state != STATE_OFF
+    active = parent is None or parent.active
     if not sources:
         yield SourceInfo(
             entity_id=state.entity_id,
