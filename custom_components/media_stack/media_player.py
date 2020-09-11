@@ -1,6 +1,7 @@
 """Media Stack."""
 import logging
 from typing import Dict, Any, List, Optional, Generator, Set
+from homeassistant.helpers.config_validation import x10_address
 import voluptuous as vol
 import asyncio
 from dataclasses import dataclass
@@ -166,23 +167,24 @@ def _all_entities(mapping: Dict[str, Dict[str, str]]) -> Set[str]:
     return entities
 
 
-async def _switch_source(hass, entity_id: str, source: Optional[str]) -> None:
-    state = hass.states.get(entity_id)
-    if state.state == STATE_OFF:
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_TURN_ON,
-            {ATTR_ENTITY_ID: entity_id},
-            blocking=True,
-        )
+async def _turn_on(hass, entity_id: str) -> None:
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_TURN_ON,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
 
-    if state.attributes.get(ATTR_INPUT_SOURCE) != source:
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_SELECT_SOURCE,
-            {ATTR_ENTITY_ID: entity_id, ATTR_INPUT_SOURCE: source},
-            blocking=True,
-        )
+
+async def _switch_source(hass, entity_id: str, source: Optional[str]) -> None:
+    _turn_on(hass, entity_id)
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_SELECT_SOURCE,
+        {ATTR_ENTITY_ID: entity_id, ATTR_INPUT_SOURCE: source},
+        blocking=True,
+    )
 
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
@@ -362,29 +364,42 @@ class MediaStack(MediaPlayerEntity):
         """Return the current state of the media player."""
         return list(sorted([x.name for x in self._sources]))
 
-    async def _async_call_service(self, state, service_name, service_data=None):
+    async def _async_call_service(self, entity_id, service_name, service_data=None):
         """Call service on source."""
         if service_data is None:
             service_data = {}
 
-        if state is None:
-            raise Exception("Unkown target entity")
-
-        service_data[ATTR_ENTITY_ID] = state.entity_id
+        service_data[ATTR_ENTITY_ID] = entity_id
 
         await self.hass.services.async_call(
             DOMAIN, service_name, service_data, blocking=True
         )
 
     async def _async_call_source(self, service_name, service_data=None):
-        await self._async_call_service(self._source_entity, service_name, service_data)
+        if self._source_entity is None:
+            raise Exception("Unkown target entity")
+        await self._async_call_service(self._source_entity.entity_id, service_name, service_data)
 
     async def _async_call_sink(self, service_name, service_data=None):
+        if self._sink_entity is None:
+            raise Exception("Unkown target entity")
         await self._async_call_service(self._sink_entity, service_name, service_data)
 
     async def async_turn_on(self):
         """Turn the media player on."""
-        await self._async_call_source(SERVICE_TURN_ON)
+        if self._source_entity is None:
+            raise Exception("Unkown entity to turn on")        
+
+        info = next((x for x in self._sources if x.entity_id == self._source_entity.entity_id and x.active), None)
+        if not info:
+            raise KeyError(f"Unable to find {self._source_entity.entity_id} in source chain")
+
+        await asyncio.gather(
+            *[
+                _turn_on(self.hass, x.entity_id)
+                for x in _get_parents(info)
+            ]
+        )
 
     async def async_turn_off(self):
         """Turn the media player off."""
