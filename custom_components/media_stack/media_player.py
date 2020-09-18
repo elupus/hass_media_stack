@@ -11,6 +11,7 @@ from homeassistant.components.media_player import (
     ATTR_MEDIA_VOLUME_LEVEL,
     ATTR_MEDIA_VOLUME_MUTED,
     ATTR_TO_PROPERTY,
+    BrowseMedia,
     DOMAIN,
     PLATFORM_SCHEMA,
     MediaPlayerEntity,
@@ -21,7 +22,7 @@ from homeassistant.components.media_player.const import (
     ATTR_MEDIA_CONTENT_ID,
     ATTR_MEDIA_CONTENT_TYPE,
     ATTR_SOUND_MODE_LIST,
-    ATTR_MEDIA_SHUFFLE,
+    ATTR_MEDIA_SHUFFLE, MEDIA_CLASS_DIRECTORY,
     SERVICE_CLEAR_PLAYLIST,
     SERVICE_PLAY_MEDIA,
     SERVICE_SELECT_SOURCE,
@@ -520,23 +521,26 @@ class MediaStack(MediaPlayerEntity):
                 & SUPPORT_BROWSE_MEDIA
             ):
                 sources.append(
-                    {
-                        "title": state.name,
-                        "media_content_id": entity_id,
-                        "media_content_type": "library",
-                        "can_play": False,
-                        "can_expand": True,
-                        "childres": [],
-                    }
+                    BrowseMedia(
+                        title=state.name,
+                        media_class=MEDIA_CLASS_DIRECTORY,
+                        media_content_id=entity_id,
+                        media_content_type="library",
+                        can_play=False,
+                        can_expand=True,
+                        children=[]
+                    )
                 )
 
-        root = {
-            "title": self.name,
-            "media_content_id": self.entity_id,
-            "media_content_type": "library",
-            "can_play": False,
-            "children": sources,
-        }
+        root = BrowseMedia(
+            title=self.name,
+            media_class=MEDIA_CLASS_DIRECTORY,
+            media_content_id=self.entity_id,
+            media_content_type="library",
+            can_play=False,
+            can_expand=True,
+            children=sources
+        )
 
         return root
 
@@ -550,14 +554,15 @@ class MediaStack(MediaPlayerEntity):
 
         result = await player.async_browse_media(media_content_type, media_content_id)
 
-        def _add_prefix(data):
-            copy = dict(data)
-            copy["media_content_id"] = f"{entity_id}:{data['media_content_id']}"
-            if "children" in data:
-                copy["children"] = [_add_prefix(child) for child in data["children"]]
-            return copy
+        def _add_prefix(data: BrowseMedia):
+            data.media_content_id = f"{entity_id}:{data.media_content_id}"
+            if data.children:
+                for child in data.children:
+                    _add_prefix(child)
 
-        return _add_prefix(result)
+        _add_prefix(result)
+
+        return result
 
     async def async_browse_media(self, media_content_type=None, media_content_id=None):
         """Implement the websocket media browsing helper."""
