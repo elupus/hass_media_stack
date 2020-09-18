@@ -22,7 +22,8 @@ from homeassistant.components.media_player.const import (
     ATTR_MEDIA_CONTENT_ID,
     ATTR_MEDIA_CONTENT_TYPE,
     ATTR_SOUND_MODE_LIST,
-    ATTR_MEDIA_SHUFFLE, MEDIA_CLASS_DIRECTORY,
+    ATTR_MEDIA_SHUFFLE,
+    MEDIA_CLASS_DIRECTORY,
     SERVICE_CLEAR_PLAYLIST,
     SERVICE_PLAY_MEDIA,
     SERVICE_SELECT_SOURCE,
@@ -379,7 +380,9 @@ class MediaStack(MediaPlayerEntity):
     async def _async_call_source(self, service_name, service_data=None):
         if self._source_entity is None:
             raise Exception("Unkown target entity")
-        await self._async_call_service(self._source_entity.entity_id, service_name, service_data)
+        await self._async_call_service(
+            self._source_entity.entity_id, service_name, service_data
+        )
 
     async def _async_call_sink(self, service_name, service_data=None):
         if self._sink_entity is None:
@@ -389,17 +392,23 @@ class MediaStack(MediaPlayerEntity):
     async def async_turn_on(self):
         """Turn the media player on."""
         if self._source_entity is None:
-            raise Exception("Unkown entity to turn on")        
+            raise Exception("Unkown entity to turn on")
 
-        info = next((x for x in self._sources if x.entity_id == self._source_entity.entity_id and x.active), None)
+        info = next(
+            (
+                x
+                for x in self._sources
+                if x.entity_id == self._source_entity.entity_id and x.active
+            ),
+            None,
+        )
         if not info:
-            raise KeyError(f"Unable to find {self._source_entity.entity_id} in source chain")
+            raise KeyError(
+                f"Unable to find {self._source_entity.entity_id} in source chain"
+            )
 
         await asyncio.gather(
-            *[
-                _turn_on(self.hass, x.entity_id)
-                for x in _get_parents(info)
-            ]
+            *[_turn_on(self.hass, x.entity_id) for x in _get_parents(info)]
         )
 
     async def async_turn_off(self):
@@ -528,7 +537,7 @@ class MediaStack(MediaPlayerEntity):
                         media_content_type="library",
                         can_play=False,
                         can_expand=True,
-                        children=[]
+                        children=[],
                     )
                 )
 
@@ -539,7 +548,7 @@ class MediaStack(MediaPlayerEntity):
             media_content_type="library",
             can_play=False,
             can_expand=True,
-            children=sources
+            children=sources,
         )
 
         return root
