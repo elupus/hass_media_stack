@@ -387,7 +387,9 @@ class MediaStack(MediaPlayerEntity):
     async def _async_call_sink(self, service_name, service_data=None):
         if self._sink_entity is None:
             raise Exception("Unkown target entity")
-        await self._async_call_service(self._sink_entity, service_name, service_data)
+        await self._async_call_service(
+            self._sink_entity.entity_id, service_name, service_data
+        )
 
     async def async_turn_on(self):
         """Turn the media player on."""
