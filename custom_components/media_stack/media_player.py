@@ -1,7 +1,6 @@
 """Media Stack."""
 import logging
 from typing import Dict, Any, List, Optional, Generator, Set
-from homeassistant.helpers.config_validation import x10_address
 import voluptuous as vol
 import asyncio
 from dataclasses import dataclass
@@ -15,24 +14,16 @@ from homeassistant.components.media_player import (
     DOMAIN,
     PLATFORM_SCHEMA,
     MediaPlayerEntity,
+    MediaPlayerEntityFeature,
 )
 from homeassistant.components.media_player.const import (
     ATTR_INPUT_SOURCE,
     ATTR_INPUT_SOURCE_LIST,
-    ATTR_MEDIA_CONTENT_ID,
-    ATTR_MEDIA_CONTENT_TYPE,
     ATTR_SOUND_MODE_LIST,
     ATTR_MEDIA_SHUFFLE,
     MEDIA_CLASS_DIRECTORY,
     SERVICE_CLEAR_PLAYLIST,
-    SERVICE_PLAY_MEDIA,
     SERVICE_SELECT_SOURCE,
-    SUPPORT_SELECT_SOURCE,
-    SUPPORT_BROWSE_MEDIA,
-    SUPPORT_PLAY_MEDIA,
-    SUPPORT_VOLUME_MUTE,
-    SUPPORT_VOLUME_SET,
-    SUPPORT_VOLUME_STEP,
 )
 from homeassistant.components.media_player.errors import BrowseError
 
@@ -63,7 +54,6 @@ from homeassistant.const import (
 )
 from homeassistant.core import State, callback
 from homeassistant.helpers import config_validation as cv
-from voluptuous.schema_builder import Self
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,8 +61,14 @@ CONF_MAPPING = "mapping"
 
 OFF_STATES = [STATE_OFF, STATE_STANDBY, STATE_UNAVAILABLE]
 
-SUPPORTED_ANY = SUPPORT_BROWSE_MEDIA | SUPPORT_PLAY_MEDIA
-SUPPORTED_SINK = SUPPORT_VOLUME_MUTE | SUPPORT_VOLUME_SET | SUPPORT_VOLUME_STEP
+SUPPORTED_ANY = (
+    MediaPlayerEntityFeature.BROWSE_MEDIA | MediaPlayerEntityFeature.PLAY_MEDIA
+)
+SUPPORTED_SINK = (
+    MediaPlayerEntityFeature.VOLUME_MUTE
+    | MediaPlayerEntityFeature.VOLUME_SET
+    | MediaPlayerEntityFeature.VOLUME_STEP
+)
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -323,7 +319,7 @@ class MediaStack(MediaPlayerEntity):
         """Return the current state of the media player."""
         supported = self._get_attribute(self._source_entity, ATTR_SUPPORTED_FEATURES, 0)
 
-        supported |= SUPPORT_SELECT_SOURCE
+        supported |= MediaPlayerEntityFeature.SELECT_SOURCE
 
         supported &= ~SUPPORTED_SINK
         supported |= (
@@ -529,7 +525,7 @@ class MediaStack(MediaPlayerEntity):
             state = self.hass.states.get(entity_id)
             if (
                 self._get_attribute(state, ATTR_SUPPORTED_FEATURES)
-                & SUPPORT_BROWSE_MEDIA
+                & MediaPlayerEntityFeature.BROWSE_MEDIA
             ):
                 sources.append(
                     BrowseMedia(
