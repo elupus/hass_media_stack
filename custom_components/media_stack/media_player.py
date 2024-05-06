@@ -52,8 +52,9 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_UNAVAILABLE,
 )
-from homeassistant.core import State, callback
+from homeassistant.core import State, callback, HomeAssistant
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.event import async_track_state_change_event
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ def _get_parents(info: SourceInfo) -> Generator[SourceInfo, None, None]:
 
 
 def _get_root_sources(
-    hass, mappings: MappingType, state: State, parent: SourceInfo
+    hass: HomeAssistant, mappings: MappingType, state: State, parent: SourceInfo
 ) -> Generator[SourceInfo, None, None]:
     if state is None:
         return
@@ -165,7 +166,7 @@ def _all_entities(mapping: Dict[str, Dict[str, str]]) -> Set[str]:
     return entities
 
 
-async def _turn_on(hass, entity_id: str) -> None:
+async def _turn_on(hass: HomeAssistant, entity_id: str) -> None:
     await hass.services.async_call(
         DOMAIN,
         SERVICE_TURN_ON,
@@ -174,7 +175,7 @@ async def _turn_on(hass, entity_id: str) -> None:
     )
 
 
-async def _switch_source(hass, entity_id: str, source: Optional[str]) -> None:
+async def _switch_source(hass: HomeAssistant, entity_id: str, source: Optional[str]) -> None:
     _turn_on(hass, entity_id)
 
     await hass.services.async_call(
@@ -219,8 +220,10 @@ class MediaStack(MediaPlayerEntity):
                 entities.append(source_entity_id)
 
         self.async_on_remove(
-            self.hass.helpers.event.async_track_state_change(
-                entities, async_on_dependency_update
+            async_track_state_change_event(
+                self.hass,
+                entities,
+                async_on_dependency_update
             )
         )
 
