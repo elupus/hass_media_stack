@@ -21,7 +21,7 @@ from homeassistant.components.media_player.const import (
     ATTR_INPUT_SOURCE_LIST,
     ATTR_SOUND_MODE_LIST,
     ATTR_MEDIA_SHUFFLE,
-    MEDIA_CLASS_DIRECTORY,
+    MediaClass,
     SERVICE_CLEAR_PLAYLIST,
     SERVICE_SELECT_SOURCE,
 )
@@ -533,7 +533,7 @@ class MediaStack(MediaPlayerEntity):
                 sources.append(
                     BrowseMedia(
                         title=state.name,
-                        media_class=MEDIA_CLASS_DIRECTORY,
+                        media_class=MediaClass.DIRECTORY,
                         media_content_id=entity_id,
                         media_content_type="library",
                         can_play=False,
@@ -544,7 +544,7 @@ class MediaStack(MediaPlayerEntity):
 
         root = BrowseMedia(
             title=self.name,
-            media_class=MEDIA_CLASS_DIRECTORY,
+            media_class=MediaClass.DIRECTORY,
             media_content_id=self.entity_id,
             media_content_type="library",
             can_play=False,
