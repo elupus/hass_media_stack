@@ -9,7 +9,7 @@ from homeassistant.components.media_player import (
     ATTR_MEDIA_SEEK_POSITION,
     ATTR_MEDIA_VOLUME_LEVEL,
     ATTR_MEDIA_VOLUME_MUTED,
-    ATTR_TO_PROPERTY,
+    PROP_TO_ATTR,
     BrowseMedia,
     DOMAIN,
     PLATFORM_SCHEMA,
@@ -302,8 +302,8 @@ class MediaStack(MediaPlayerEntity):
 
         attrs = {}
 
-        for attr in ATTR_TO_PROPERTY:
-            value = getattr(self, attr)
+        for prop, attr in PROP_TO_ATTR.items():
+            value = getattr(self, prop)
             if value is None:
                 value = self._get_attribute(self._source_entity, attr)
 
