@@ -9,13 +9,23 @@ from homeassistant.components.media_player import (
     ATTR_MEDIA_SEEK_POSITION,
     ATTR_MEDIA_VOLUME_LEVEL,
     ATTR_MEDIA_VOLUME_MUTED,
-    PROP_TO_ATTR,
     BrowseMedia,
     DOMAIN,
     PLATFORM_SCHEMA,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
 )
+
+
+try:
+    from homeassistant.components.media_player import (
+        PROP_TO_ATTR,
+    )
+except ImportError:
+        from homeassistant.components.media_player.entity import (
+        PROP_TO_ATTR,
+    )
+
 from homeassistant.components.media_player.const import (
     ATTR_INPUT_SOURCE,
     ATTR_INPUT_SOURCE_LIST,
